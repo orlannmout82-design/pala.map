@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Palladium Map Tool</title>
+    <title>Xanoth Explorer Map</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -9,7 +9,7 @@
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
     <style>
-        body { margin:0; background: #111; }
+        body { margin:0; background:#111; }
         #map { height: 100vh; }
     </style>
 </head>
@@ -19,46 +19,97 @@
 
 <script>
 
-// INIT MAP
+// =====================
+// 🌍 CONFIG XANOTH
+// =====================
+
+const SPAWN_X = 0;
+const SPAWN_Z = 0;
+
+// zones que TU ajoutes (tes explorations)
+let visitedZones = [
+    {x: 2000, z: -3000},
+    {x: -4000, z: 1500}
+];
+
+// =====================
+// 🧠 IA SCORE
+// =====================
+
+function distance(x, z) {
+    return Math.sqrt(x*x + z*z);
+}
+
+function isVisited(x, z) {
+    return visitedZones.some(v =>
+        Math.abs(v.x - x) < 1000 && Math.abs(v.z - z) < 1000
+    );
+}
+
+// distance spawn
+function fDistance(d) {
+    if (d < 1500) return 0.2;
+    if (d < 6000) return 1.0;
+    if (d < 12000) return 0.7;
+    return 0.4;
+}
+
+// logique Xanoth (bases souvent loin mais pas trop)
+function fMeta(d) {
+    if (d < 3000) return 0.5;
+    if (d < 8000) return 1.0;
+    return 0.7;
+}
+
+// exploration perso
+function fExplore(visited) {
+    return visited ? 0.2 : 1.0;
+}
+
+// SCORE FINAL
+function computeScore(x, z) {
+    let d = distance(x, z);
+
+    let score =
+        (3 * fDistance(d)) +
+        (2 * fMeta(d)) +
+        (4 * fExplore(isVisited(x, z)));
+
+    return Math.round((score / 9) * 100);
+}
+
+// =====================
+// 🎨 COULEURS
+// =====================
+
+function color(score) {
+    if (score > 80) return "#ff3b3b"; // rouge
+    if (score > 60) return "#ff9f1c"; // orange
+    if (score > 40) return "#ffd60a"; // jaune
+    return "#3a86ff"; // bleu
+}
+
+// =====================
+// 🗺️ MAP
+// =====================
+
 var map = L.map('map').setView([0, 0], 2);
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {}).addTo(map);
 
-// ===== IA =====
+// =====================
+// 🔲 GRILLE XANOTH
+// =====================
 
-function getDistance(x, z) {
-    return Math.sqrt(x * x + z * z);
-}
+for (let x = -30000; x <= 30000; x += 2000) {
+    for (let z = -30000; z <= 30000; z += 2000) {
 
-function computeScore(x, z, visited) {
-    let d = getDistance(x, z);
-
-    let fd = (d < 1000) ? 0.2 : (d < 5000 ? 1 : (d < 10000 ? 0.6 : 0.3));
-    let fa = (d < 3000) ? 1 : (d < 8000 ? 0.7 : 0.4);
-    let fe = visited ? 0.2 : 1.0;
-
-    let score = 100 * (3*fd + 2*fa + 4*fe) / 9;
-    return Math.round(score);
-}
-
-// COULEURS
-function color(score) {
-    if (score > 80) return "red";
-    if (score > 60) return "orange";
-    if (score > 40) return "yellow";
-    return "blue";
-}
-
-// GÉNÉRATION MAP
-for (let x = -10000; x <= 10000; x += 1000) {
-    for (let z = -10000; z <= 10000; z += 1000) {
-
-        let visited = Math.random() < 0.3;
-        let score = computeScore(x, z, visited);
+        let visited = isVisited(x, z);
+        let score = computeScore(x, z);
 
         let rect = L.rectangle([
-            [x/100, z/100],
-            [(x+1000)/100, (z+1000)/100]
+            [x/200, z/200],
+            [(x+2000)/200, (z+2000)/200]
         ], {
             color: color(score),
             weight: 1,
@@ -66,34 +117,37 @@ for (let x = -10000; x <= 10000; x += 1000) {
         }).addTo(map);
 
         rect.bindPopup(`
+            <b>Xanoth Zone</b><br>
             Score: ${score}%<br>
-            Coord: ${x}, ${z}<br>
+            X: ${x} / Z: ${z}<br>
             Exploré: ${visited}
         `);
     }
 }
 
-// MEILLEURS SPOTS
-function findBestSpots() {
-    let best = [];
+// =====================
+// 🔥 BEST SPOTS IA
+// =====================
 
-    for (let x = -10000; x <= 10000; x += 2000) {
-        for (let z = -10000; z <= 10000; z += 2000) {
+function bestSpots() {
+    let spots = [];
 
-            let score = computeScore(x, z, false);
-            best.push({x, z, score});
+    for (let x = -30000; x <= 30000; x += 4000) {
+        for (let z = -30000; z <= 30000; z += 4000) {
+            spots.push({
+                x,
+                z,
+                score: computeScore(x, z)
+            });
         }
     }
 
-    best.sort((a,b) => b.score - a.score);
-    return best.slice(0, 5);
+    return spots.sort((a,b) => b.score - a.score).slice(0, 8);
 }
 
-let spots = findBestSpots();
-
-spots.forEach(s => {
-    L.marker([s.x/100, s.z/100]).addTo(map)
-        .bindPopup("🔥 SPOT RECOMMANDÉ<br>Score: " + s.score);
+bestSpots().forEach(s => {
+    L.marker([s.x/200, s.z/200]).addTo(map)
+        .bindPopup("🔥 SPOT XANOTH<br>Score: " + s.score);
 });
 
 </script>
