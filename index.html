@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Xanoth Explorer Map</title>
+    <title>Xanoth Intelligence Map</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -9,88 +9,55 @@
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
     <style>
-        body { margin:0; background:#111; }
+        body { margin:0; background:#111; font-family: Arial; }
+
         #map { height: 100vh; }
+
+        /* 🧭 minimap */
+        #minimap {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 200px;
+            height: 200px;
+            border: 2px solid white;
+            z-index: 9999;
+        }
+
+        #panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            z-index: 9999;
+            width: 220px;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 5px;
+            padding: 5px;
+        }
     </style>
 </head>
+
 <body>
 
 <div id="map"></div>
+<div id="minimap"></div>
+
+<div id="panel">
+    <b>🧠 Xanoth AI</b><br>
+    Spots enregistrés: <span id="count">0</span>
+    <button onclick="clearData()">Reset data</button>
+</div>
 
 <script>
 
 // =====================
-// 🌍 CONFIG XANOTH
-// =====================
-
-const SPAWN_X = 0;
-const SPAWN_Z = 0;
-
-// zones que TU ajoutes (tes explorations)
-let visitedZones = [
-    {x: 2000, z: -3000},
-    {x: -4000, z: 1500}
-];
-
-// =====================
-// 🧠 IA SCORE
-// =====================
-
-function distance(x, z) {
-    return Math.sqrt(x*x + z*z);
-}
-
-function isVisited(x, z) {
-    return visitedZones.some(v =>
-        Math.abs(v.x - x) < 1000 && Math.abs(v.z - z) < 1000
-    );
-}
-
-// distance spawn
-function fDistance(d) {
-    if (d < 1500) return 0.2;
-    if (d < 6000) return 1.0;
-    if (d < 12000) return 0.7;
-    return 0.4;
-}
-
-// logique Xanoth (bases souvent loin mais pas trop)
-function fMeta(d) {
-    if (d < 3000) return 0.5;
-    if (d < 8000) return 1.0;
-    return 0.7;
-}
-
-// exploration perso
-function fExplore(visited) {
-    return visited ? 0.2 : 1.0;
-}
-
-// SCORE FINAL
-function computeScore(x, z) {
-    let d = distance(x, z);
-
-    let score =
-        (3 * fDistance(d)) +
-        (2 * fMeta(d)) +
-        (4 * fExplore(isVisited(x, z)));
-
-    return Math.round((score / 9) * 100);
-}
-
-// =====================
-// 🎨 COULEURS
-// =====================
-
-function color(score) {
-    if (score > 80) return "#ff3b3b"; // rouge
-    if (score > 60) return "#ff9f1c"; // orange
-    if (score > 40) return "#ffd60a"; // jaune
-    return "#3a86ff"; // bleu
-}
-
-// =====================
-// 🗺️ MAP
+// 🌍 MAP PRINCIPALE
 // =====================
 
 var map = L.map('map').setView([0, 0], 2);
@@ -98,31 +65,120 @@ var map = L.map('map').setView([0, 0], 2);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {}).addTo(map);
 
 // =====================
-// 🔲 GRILLE XANOTH
+// 🧭 MINIMAP
 // =====================
 
-for (let x = -30000; x <= 30000; x += 2000) {
-    for (let z = -30000; z <= 30000; z += 2000) {
+var mini = L.map('minimap', {
+    zoomControl: false,
+    attributionControl: false
+}).setView([0, 0], 0);
 
-        let visited = isVisited(x, z);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {}).addTo(mini);
+
+// =====================
+// 💾 DATA LOCAL (IA APPRENTISSAGE)
+// =====================
+
+let data = JSON.parse(localStorage.getItem("xanoth_data") || "[]");
+
+// =====================
+// 🧠 IA APPRENTISSAGE
+// =====================
+
+function learn(x, z) {
+    data.push({x, z, value: 1});
+    localStorage.setItem("xanoth_data", JSON.stringify(data));
+    updateUI();
+}
+
+// plus un endroit est cliqué = plus intéressant
+function getHeat(x, z) {
+    let score = 0;
+
+    data.forEach(d => {
+        let dist = Math.sqrt((d.x - x)**2 + (d.z - z)**2);
+        if (dist < 5000) score += 10;
+    });
+
+    return score;
+}
+
+// =====================
+// 🧮 SCORE GLOBAL
+// =====================
+
+function computeScore(x, z) {
+
+    let base =
+        (Math.abs(x) < 8000 ? 70 : 50) +
+        (Math.random() * 10);
+
+    let heat = getHeat(x, z);
+
+    return Math.min(100, Math.round(base + heat));
+}
+
+// =====================
+// 🎨 COULEURS
+// =====================
+
+function color(s) {
+    if (s > 80) return "#ff3b3b";
+    if (s > 60) return "#ff9f1c";
+    if (s > 40) return "#ffd60a";
+    return "#3a86ff";
+}
+
+// =====================
+// 🗺️ GRILLE
+// =====================
+
+for (let x = -30000; x <= 30000; x += 2500) {
+    for (let z = -30000; z <= 30000; z += 2500) {
+
         let score = computeScore(x, z);
 
         let rect = L.rectangle([
             [x/200, z/200],
-            [(x+2000)/200, (z+2000)/200]
+            [(x+2500)/200, (z+2500)/200]
         ], {
             color: color(score),
             weight: 1,
             fillOpacity: 0.5
         }).addTo(map);
 
+        // 📍 CLICK = apprendre
+        rect.on("click", function() {
+            learn(x, z);
+            alert("Zone enregistrée dans l'IA !");
+        });
+
         rect.bindPopup(`
-            <b>Xanoth Zone</b><br>
+            <b>Zone Xanoth</b><br>
             Score: ${score}%<br>
-            X: ${x} / Z: ${z}<br>
-            Exploré: ${visited}
+            X: ${x} Z: ${z}<br>
+            <i>Clique pour enregistrer</i>
         `);
     }
+}
+
+// =====================
+// 📊 UI UPDATE
+// =====================
+
+function updateUI() {
+    document.getElementById("count").innerText = data.length;
+}
+
+updateUI();
+
+// =====================
+// 🧹 RESET
+// =====================
+
+function clearData() {
+    localStorage.clear();
+    location.reload();
 }
 
 // =====================
@@ -132,22 +188,21 @@ for (let x = -30000; x <= 30000; x += 2000) {
 function bestSpots() {
     let spots = [];
 
-    for (let x = -30000; x <= 30000; x += 4000) {
-        for (let z = -30000; z <= 30000; z += 4000) {
+    for (let x = -30000; x <= 30000; x += 5000) {
+        for (let z = -30000; z <= 30000; z += 5000) {
             spots.push({
-                x,
-                z,
+                x, z,
                 score: computeScore(x, z)
             });
         }
     }
 
-    return spots.sort((a,b) => b.score - a.score).slice(0, 8);
+    return spots.sort((a,b) => b.score - a.score).slice(0, 5);
 }
 
 bestSpots().forEach(s => {
     L.marker([s.x/200, s.z/200]).addTo(map)
-        .bindPopup("🔥 SPOT XANOTH<br>Score: " + s.score);
+        .bindPopup("🔥 SPOT IA<br>Score: " + s.score);
 });
 
 </script>
