@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Palladium Map Tool</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <style>
+        body { margin:0; background: #111; }
+        #map { height: 100vh; }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<script>
+
+// INIT MAP
+var map = L.map('map').setView([0, 0], 2);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {}).addTo(map);
+
+// ===== IA =====
+
+function getDistance(x, z) {
+    return Math.sqrt(x * x + z * z);
+}
+
+function computeScore(x, z, visited) {
+    let d = getDistance(x, z);
+
+    let fd = (d < 1000) ? 0.2 : (d < 5000 ? 1 : (d < 10000 ? 0.6 : 0.3));
+    let fa = (d < 3000) ? 1 : (d < 8000 ? 0.7 : 0.4);
+    let fe = visited ? 0.2 : 1.0;
+
+    let score = 100 * (3*fd + 2*fa + 4*fe) / 9;
+    return Math.round(score);
+}
+
+// COULEURS
+function color(score) {
+    if (score > 80) return "red";
+    if (score > 60) return "orange";
+    if (score > 40) return "yellow";
+    return "blue";
+}
+
+// GÉNÉRATION MAP
+for (let x = -10000; x <= 10000; x += 1000) {
+    for (let z = -10000; z <= 10000; z += 1000) {
+
+        let visited = Math.random() < 0.3;
+        let score = computeScore(x, z, visited);
+
+        let rect = L.rectangle([
+            [x/100, z/100],
+            [(x+1000)/100, (z+1000)/100]
+        ], {
+            color: color(score),
+            weight: 1,
+            fillOpacity: 0.5
+        }).addTo(map);
+
+        rect.bindPopup(`
+            Score: ${score}%<br>
+            Coord: ${x}, ${z}<br>
+            Exploré: ${visited}
+        `);
+    }
+}
+
+// MEILLEURS SPOTS
+function findBestSpots() {
+    let best = [];
+
+    for (let x = -10000; x <= 10000; x += 2000) {
+        for (let z = -10000; z <= 10000; z += 2000) {
+
+            let score = computeScore(x, z, false);
+            best.push({x, z, score});
+        }
+    }
+
+    best.sort((a,b) => b.score - a.score);
+    return best.slice(0, 5);
+}
+
+let spots = findBestSpots();
+
+spots.forEach(s => {
+    L.marker([s.x/100, s.z/100]).addTo(map)
+        .bindPopup("🔥 SPOT RECOMMANDÉ<br>Score: " + s.score);
+});
+
+</script>
+
+</body>
+</html>
